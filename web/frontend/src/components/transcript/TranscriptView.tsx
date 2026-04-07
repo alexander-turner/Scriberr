@@ -1,23 +1,9 @@
 import { forwardRef, useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { useKaraokeHighlight, computeWordOffsets, findActiveWordIndex } from '@/features/transcription/hooks/useKaraokeHighlight';
+import { groupSegmentsBySpeaker, getCaretOffsetFromPoint, textSelectionStyle } from './transcriptHelpers';
 import { cn } from '@/lib/utils';
 import { useIsDesktop } from '@/hooks/useIsDesktop';
 import type { Note } from '@/types/note';
-
-// Helper for cross-browser caret position
-function getCaretOffsetFromPoint(x: number, y: number) {
-    if (document.caretRangeFromPoint) {
-        const range = document.caretRangeFromPoint(x, y);
-        return range ? range.startOffset : null;
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((document as any).caretPositionFromPoint) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pos = (document as any).caretPositionFromPoint(x, y);
-        return pos ? pos.offset : null;
-    }
-    return null;
-}
 
 interface WordSegment {
     start: number;
@@ -239,6 +225,11 @@ export const TranscriptView = forwardRef<HTMLDivElement, TranscriptViewProps>(({
         }
     }, [expandedData, onSeek]);
 
+    const speakerParagraphs = useMemo(() => {
+        if (mode !== 'compact' || !transcript?.segments?.length) return null;
+        return groupSegmentsBySpeaker(transcript.segments);
+    }, [mode, transcript]);
+
     if (!transcript) {
         return (
             <div className="flex flex-col items-center justify-center h-64 text-carbon-400">
@@ -247,8 +238,32 @@ export const TranscriptView = forwardRef<HTMLDivElement, TranscriptViewProps>(({
         );
     }
 
+    const seekCursorClass = isDesktop && isModifierPressed
+        ? 'cursor-pointer hover:text-carbon-900 dark:hover:text-carbon-100'
+        : 'cursor-text';
+
     // Render transcript with word-level highlighting for compact view
     const renderCompactView = () => {
+        if (speakerParagraphs) {
+            return (
+                <div className="space-y-4">
+                    {speakerParagraphs.map((text, i) => (
+                        <p
+                            key={i}
+                            className={cn(
+                                "text-lg leading-relaxed text-carbon-700 dark:text-carbon-300 whitespace-pre-wrap font-reading selection:bg-orange-500/30 transition-colors duration-200 select-text",
+                                seekCursorClass
+                            )}
+                            style={textSelectionStyle}
+                            data-transcript-text
+                        >
+                            {text}
+                        </p>
+                    ))}
+                </div>
+            );
+        }
+
         if (!transcript.word_segments || transcript.word_segments.length === 0) {
             return <p className="text-lg leading-relaxed text-carbon-700 dark:text-carbon-300 whitespace-pre-wrap">{transcript.text}</p>;
         }
@@ -259,26 +274,13 @@ export const TranscriptView = forwardRef<HTMLDivElement, TranscriptViewProps>(({
                 onClick={isDesktop ? handleWordClick : undefined}
                 className={cn(
                     "text-lg leading-relaxed text-carbon-700 dark:text-carbon-300 whitespace-pre-wrap font-reading selection:bg-orange-500/30 transition-colors duration-200 select-text",
-                    isDesktop && isModifierPressed ? 'cursor-pointer hover:text-carbon-900 dark:hover:text-carbon-100' : 'cursor-text'
+                    seekCursorClass
                 )}
-                style={{
-                    // CRITICAL: Enable native text selection on iOS/Android
-                    WebkitUserSelect: 'text',
-                    userSelect: 'text',
-                    // CRITICAL: Remove grey tap highlight on iOS
-                    WebkitTapHighlightColor: 'transparent',
-                    // CRITICAL: Allow text selection gestures while supporting scroll
-                    // 'manipulation' allows pan and pinch-zoom but not double-tap zoom
-                    touchAction: 'pan-y pinch-zoom',
-                    // Ensure text is the selection target, not the container
-                    WebkitTouchCallout: 'default'
-                }}
+                style={textSelectionStyle}
                 data-transcript-text
             >
-                {/* The hook returns the built text string, so we just render it directly */}
                 {fullText}
             </div>
-
         );
     };
 
@@ -320,18 +322,9 @@ export const TranscriptView = forwardRef<HTMLDivElement, TranscriptViewProps>(({
                             onClick={isDesktop ? (e) => handleExpandedClick(e, i) : undefined}
                             className={cn(
                                 "flex-grow text-base text-primary leading-relaxed whitespace-pre-wrap font-reading transition-colors duration-200 select-text",
-                                isDesktop && isModifierPressed ? 'cursor-pointer hover:text-carbon-900 dark:hover:text-carbon-100' : 'cursor-text'
+                                seekCursorClass
                             )}
-                            style={{
-                                // CRITICAL: Enable native text selection on iOS/Android
-                                WebkitUserSelect: 'text',
-                                userSelect: 'text',
-                                // CRITICAL: Remove grey tap highlight on iOS
-                                WebkitTapHighlightColor: 'transparent',
-                                // CRITICAL: Allow text selection gestures while supporting scroll
-                                touchAction: 'pan-y pinch-zoom',
-                                WebkitTouchCallout: 'default'
-                            }}
+                            style={textSelectionStyle}
                             data-transcript-text
                         >
                             {segment.fullText || segment.text}
